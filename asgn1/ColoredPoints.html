@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Colored Points, Triangles, and Circles</title>
+  </head>
+
+  <body onload="main()">
+    <canvas id="webgl" width="400" height="400"></canvas>
+    <br><br>
+
+    <button id="pointButton">Point</button>
+    <button id="triangleButton">Triangle</button>
+    <button id="circleButton">Circle</button>
+    <button id="clearButton">Clear Canvas</button>
+    <button id="drawPictureButton">Draw Flower</button>
+    <br><br>
+
+    Red <input type="range" id="redSlide" min="0" max="100" value="100"><br>
+    Green <input type="range" id="greenSlide" min="0" max="100" value="0"><br>
+    Blue <input type="range" id="blueSlide" min="0" max="100" value="0"><br>
+    Alpha <input type="range" id="alphaSlide" min="10" max="100" value="100"><br>
+
+    Size <input type="range" id="sizeSlide" min="5" max="40" value="10"><br>
+    Segments <input type="range" id="segmentSlide" min="3" max="30" value="10"><br><br>
+
+    <p>
+      Awesome feature: transparent paint using an alpha slider, so overlapping strokes layer like paint.
+    </p>
+
+    <img src="flower-sketch.jpg" width="250" alt="Reference flower sketch">
+
+    <script src="lib/webgl-utils.js"></script>
+    <script src="lib/webgl-debug.js"></script>
+    <script src="lib/cuon-utils.js"></script>
+    <script src="Triangle.js"></script>
+    <script src="Circle.js"></script>
+    <script src="ColoredPoints.js"></script>
+  </body>
+</html>
