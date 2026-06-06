@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crystal Archipelago — CSE160 Assignment 5</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a12; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { display: block; }
+
+#hud {
+  position: fixed; top: 0; left: 0; right: 0;
+  padding: 10px 18px;
+  background: rgba(8, 12, 24, 0.82);
+  color: #c8d8f0; font-size: 13px;
+  display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  border-bottom: 1px solid rgba(120, 180, 255, 0.25);
+  pointer-events: none; z-index: 10;
+}
+#hud b { color: #7ec8ff; }
+
+#info {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  padding: 12px 20px;
+  background: rgba(8, 12, 24, 0.85);
+  color: #a0b8d8; font-size: 12px; line-height: 1.6;
+  border-top: 1px solid rgba(120, 180, 255, 0.2);
+  pointer-events: none; z-index: 10;
+}
+#info .wow { color: #ffd070; margin-top: 4px; }
+
+#score {
+  position: fixed; top: 52px; left: 16px;
+  background: rgba(8, 12, 24, 0.88);
+  border: 1px solid rgba(120, 180, 255, 0.4);
+  color: #7ec8ff; padding: 8px 14px; border-radius: 8px;
+  font-size: 14px; pointer-events: none; z-index: 10;
+}
+
+#toast {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(8, 12, 24, 0.95); border: 2px solid #ffd070;
+  color: #ffd070; padding: 24px 40px; border-radius: 12px;
+  font-size: 20px; font-weight: 600; display: none; z-index: 100;
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <span><b>Drag</b> Orbit &nbsp; <b>Scroll</b> Zoom &nbsp; <b>Right-drag</b> Pan &nbsp; <b>Click</b> Collect gems</span>
+  <span id="shapeCount">Shapes: loading…</span>
+</div>
+<div id="score">Gems: <span id="gemScore">0</span> / <span id="gemTotal">0</span></div>
+<div id="toast"></div>
+<div id="info">
+  <b>Crystal Archipelago</b> — rubric checklist:
+  Basic scene (3+ shape types, animation, directional light, perspective camera) ✓ &nbsp;|&nbsp;
+  Textured primary shape ✓ &nbsp;|&nbsp; Custom textured GLB model ✓ &nbsp;|&nbsp; Camera controls ✓ &nbsp;|&nbsp;
+  3+ light types ✓ &nbsp;|&nbsp; Skybox ✓ &nbsp;|&nbsp; 20+ primary shapes ✓
+  <div class="wow"><b>Extra feature:</b> Click-to-collect gem mini-game with raycasting, score tracking, floating islands, and particle bursts on each collection.</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/*
+ * WOW FEATURE: Gem Collector Mini-Game
+ * Click golden octahedron gems scattered across the archipelago to collect them.
+ * Uses Three.js Raycaster for mouse picking, updates a live score HUD, plays a
+ * particle burst on each collection, and shows a victory toast when all 8 are found.
+ * Floating islands and spinning crystals add ambient animation throughout the scene.
+ */
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ── Renderer ──────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+// RUBRIC: Skybox (cubemap background)
+// ── Textured skybox ───────────────────────────────────────────────
+const skybox = new THREE.CubeTextureLoader().load([
+  'textures/skybox/px.jpg', 'textures/skybox/nx.jpg',
+  'textures/skybox/py.jpg', 'textures/skybox/ny.jpg',
+  'textures/skybox/pz.jpg', 'textures/skybox/nz.jpg',
+]);
+scene.background = skybox;
+
+// RUBRIC: Perspective camera + mouse controls (OrbitControls)
+// ── Perspective camera + OrbitControls ────────────────────────────
+const camera = new THREE.PerspectiveCamera(
+  60, window.innerWidth / window.innerHeight, 0.1, 500
+);
+camera.position.set(18, 14, 22);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.minDistance = 5;
+controls.maxDistance = 80;
+controls.target.set(0, 3, 0);
+
+// RUBRIC: 3+ light types (Ambient, Directional, Hemisphere, Point, Spot)
+// ── Five different light types ────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x334466, 0.4));
+
+const sun = new THREE.DirectionalLight(0xfff4dd, 1.2); // also satisfies basic-scene directional light
+sun.position.set(20, 30, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 80;
+sun.shadow.camera.left = -30;
+sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 30;
+sun.shadow.camera.bottom = -30;
+scene.add(sun);
+
+scene.add(new THREE.HemisphereLight(0x88bbff, 0x445533, 0.5));
+
+const pointLight = new THREE.PointLight(0xff66cc, 2, 25);
+pointLight.position.set(0, 8, 0);
+pointLight.castShadow = true;
+scene.add(pointLight);
+
+const spotLight = new THREE.SpotLight(0x66ffaa, 3, 40, Math.PI / 6, 0.3, 1);
+spotLight.position.set(-12, 18, 8);
+spotLight.target.position.set(0, 2, 0);
+spotLight.castShadow = true;
+scene.add(spotLight);
+scene.add(spotLight.target);
+
+// ── Textures ──────────────────────────────────────────────────────
+const texLoader = new THREE.TextureLoader();
+const brickTex = texLoader.load('textures/brick.jpg');
+const woodTex = texLoader.load('textures/wood.jpg');
+const grassTex = texLoader.load('textures/grass.jpg');
+[brickTex, woodTex, grassTex].forEach(t => {
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+});
+grassTex.repeat.set(4, 4);
+woodTex.repeat.set(2, 2);
+
+// Six-face textured cube (one texture per face)
+function makeFaceTextures() {
+  const labels = ['E', 'W', 'T', 'B', 'N', 'S'];
+  const colors = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#e67e22', '#16a085'];
+  return labels.map((label, i) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = colors[i];
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  });
+}
+
+// ── Scene builders ────────────────────────────────────────────────
+let shapeCount = 0;
+const animated = [];
+const gems = [];
+const floatingIslands = [];
+const particles = [];
+
+function addMesh(mesh, animOpts = null) {
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  shapeCount++;
+  if (animOpts) animated.push({ mesh, ...animOpts });
+  return mesh;
+}
+
+// RUBRIC: 20+ primary shapes — boxes, spheres, cylinders, cones, toruses, octahedrons
+// RUBRIC: textured shapes — grass ground, brick cubes, wood islands, six-face cube
+// RUBRIC: 3+ shape kinds + animation — crystals/gems spin & bob, islands float
+// Main ground cylinder (cylinder — textured)
+addMesh(new THREE.Mesh(
+  new THREE.CylinderGeometry(14, 16, 2, 32),
+  new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.85 })
+), null).position.y = -1;
+
+// Stone pillars (cylinders)
+const pillarPositions = [[-8, 0, -6], [8, 0, -6], [-8, 0, 6], [8, 0, 6]];
+pillarPositions.forEach(([x, y, z]) => {
+  const pillar = addMesh(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.6, 0.8, 5, 12),
+    new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.7 })
+  ));
+  pillar.position.set(x, 2.5 + y, z);
+});
+
+// Textured brick cubes (stacked shrine)
+for (let i = 0; i < 3; i++) {
+  const cube = addMesh(new THREE.Mesh(
+    new THREE.BoxGeometry(2.5, 1.2, 2.5),
+    new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.8 })
+  ));
+  cube.position.set(0, 0.6 + i * 1.2, -5);
+}
+
+// Six-face textured cube monument
+const faceMats = makeFaceTextures().map(t =>
+  new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 })
+);
+const faceCube = addMesh(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), faceMats));
+faceCube.position.set(5, 1.2, 3);
+
+// Floating satellite islands (boxes)
+const islandData = [
+  { pos: [-14, 5, 4], size: [5, 1.2, 4], phase: 0 },
+  { pos: [13, 7, -5], size: [4, 1, 3.5], phase: 1.2 },
+  { pos: [6, 6, 12], size: [3.5, 1, 3], phase: 2.4 },
+  { pos: [-10, 8, -10], size: [4, 1, 4], phase: 3.6 },
+];
+islandData.forEach(({ pos, size, phase }) => {
+  const island = addMesh(new THREE.Mesh(
+    new THREE.BoxGeometry(...size),
+    new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.75 })
+  ));
+  island.position.set(...pos);
+  floatingIslands.push({ mesh: island, baseY: pos[1], phase });
+});
+
+// Trees: cylinder trunk + cone foliage (6 trees)
+const treeSpots = [
+  [-5, 0, 4], [4, 0, 5], [-3, 0, -3], [6, 0, -2],
+  [-14, 5.6, 4], [13, 7.6, -5],
+];
+treeSpots.forEach(([x, y, z], i) => {
+  const trunk = addMesh(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.35, 1.8, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.9 })
+  ));
+  trunk.position.set(x, y + 0.9, z);
+
+  const foliage = addMesh(new THREE.Mesh(
+    new THREE.ConeGeometry(1.2, 2.5, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2d6a3e, roughness: 0.85 })
+  ));
+  foliage.position.set(x, y + 2.8, z);
+});
+
+// Animated spinning crystals (cones)
+const crystalColors = [0x00ffff, 0xff44ff, 0x44ff88, 0xffaa00, 0x6688ff];
+crystalColors.forEach((color, i) => {
+  const angle = (i / crystalColors.length) * Math.PI * 2;
+  const crystal = addMesh(new THREE.Mesh(
+    new THREE.ConeGeometry(0.5, 2, 6),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.4 })
+  ), { spinY: 0.8 + i * 0.15, bobAmp: 0.3, bobSpeed: 1.5 + i * 0.2, bobPhase: i });
+  crystal.position.set(Math.cos(angle) * 9, 1.5, Math.sin(angle) * 9);
+});
+
+// Decorative spheres
+[[-6, 1.5, -8, 0xffdd44], [7, 1.2, 7, 0xff6688], [0, 4.5, 8, 0x88ccff]].forEach(([x, y, z, color]) => {
+  addMesh(new THREE.Mesh(
+    new THREE.SphereGeometry(0.8, 24, 16),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.6 })
+  )).position.set(x, y, z);
+});
+
+// Torus rings (portal decorations)
+[-1, 1].forEach((side, i) => {
+  const torus = addMesh(new THREE.Mesh(
+    new THREE.TorusGeometry(1.5, 0.15, 12, 48),
+    new THREE.MeshStandardMaterial({ color: 0xaaaaff, emissive: 0x4444aa, emissiveIntensity: 0.3, roughness: 0.4 })
+  ), { spinY: 0.5 * (i ? -1 : 1) });
+  torus.position.set(side * 10, 3 + i, 0);
+  torus.rotation.x = Math.PI / 3;
+});
+
+// Collectible gems (octahedrons) — wow mini-game targets
+const gemPositions = [
+  [3, 1.5, 2], [-4, 1, 5], [7, 1, -4], [-7, 1, -5],
+  [0, 3.8, -5], [-14, 6.5, 4], [13, 8.5, -5], [6, 7.5, 12],
+];
+gemPositions.forEach(([x, y, z], i) => {
+  const gem = addMesh(new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.45, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0xffd700, emissive: 0xffaa00, emissiveIntensity: 0.6,
+      roughness: 0.15, metalness: 0.8,
+    })
+  ), { spinY: 1.2, bobAmp: 0.25, bobSpeed: 2, bobPhase: i * 0.8 });
+  gem.position.set(x, y, z);
+  gem.userData.isGem = true;
+  gems.push(gem);
+});
+
+document.getElementById('gemTotal').textContent = gems.length;
+
+// RUBRIC: Custom textured 3D model (.glb via GLTFLoader)
+// ── Load textured GLB model ───────────────────────────────────────
+const loader = new GLTFLoader();
+loader.load('models/duck.glb', (gltf) => {
+  const duck = gltf.scene;
+  duck.scale.set(0.015, 0.015, 0.015);
+  duck.position.set(-2, 0.05, 2);
+  duck.rotation.y = Math.PI / 4;
+  duck.traverse(child => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+      shapeCount++;
+    }
+  });
+  scene.add(duck);
+  animated.push({ mesh: duck, spinY: 0.3 });
+  updateShapeCount();
+}, undefined, (err) => console.error('GLB load error:', err));
+
+function updateShapeCount() {
+  document.getElementById('shapeCount').textContent = `Primary shapes: ${shapeCount}`;
+}
+
+updateShapeCount();
+
+// ── Particle system for gem collection ────────────────────────────
+function spawnBurst(position) {
+  const count = 40;
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+  const velocities = [];
+  for (let i = 0; i < count; i++) {
+    positions[i * 3] = position.x;
+    positions[i * 3 + 1] = position.y;
+    positions[i * 3 + 2] = position.z;
+    velocities.push(new THREE.Vector3(
+      (Math.random() - 0.5) * 4,
+      Math.random() * 4 + 1,
+      (Math.random() - 0.5) * 4
+    ));
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xffd700, size: 0.25, transparent: true, opacity: 1 });
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+  particles.push({ pts, velocities, life: 1.0 });
+}
+
+// ── Raycasting for gem clicks ─────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let gemsCollected = 0;
+
+renderer.domElement.addEventListener('click', (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(gems, false);
+  if (hits.length === 0) return;
+
+  const gem = hits[0].object;
+  if (!gem.userData.isGem) return;
+
+  spawnBurst(gem.position.clone());
+  scene.remove(gem);
+  const idx = gems.indexOf(gem);
+  if (idx >= 0) gems.splice(idx, 1);
+  const animIdx = animated.findIndex(a => a.mesh === gem);
+  if (animIdx >= 0) animated.splice(animIdx, 1);
+
+  gemsCollected++;
+  document.getElementById('gemScore').textContent = gemsCollected;
+
+  if (gemsCollected === parseInt(document.getElementById('gemTotal').textContent)) {
+    const toast = document.getElementById('toast');
+    toast.textContent = '✨ All gems collected! ✨';
+    toast.style.display = 'block';
+    setTimeout(() => { toast.style.display = 'none'; }, 3500);
+  }
+});
+
+// ── Animation loop ────────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  animated.forEach(({ mesh, spinY, bobAmp, bobSpeed, bobPhase }) => {
+    if (spinY) mesh.rotation.y += spinY * 0.016;
+    if (bobAmp) {
+      const base = mesh.userData.baseY ?? mesh.position.y;
+      if (!mesh.userData.baseY) mesh.userData.baseY = base;
+      mesh.position.y = mesh.userData.baseY + Math.sin(t * (bobSpeed || 1) + (bobPhase || 0)) * bobAmp;
+    }
+  });
+
+  floatingIslands.forEach(({ mesh, baseY, phase }) => {
+    mesh.position.y = baseY + Math.sin(t * 0.7 + phase) * 0.6;
+  });
+
+  pointLight.intensity = 1.5 + Math.sin(t * 2) * 0.5;
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= 0.025;
+    const pos = p.pts.geometry.attributes.position.array;
+    for (let j = 0; j < p.velocities.length; j++) {
+      pos[j * 3] += p.velocities[j].x * 0.016;
+      pos[j * 3 + 1] += p.velocities[j].y * 0.016;
+      pos[j * 3 + 2] += p.velocities[j].z * 0.016;
+      p.velocities[j].y -= 0.08;
+    }
+    p.pts.geometry.attributes.position.needsUpdate = true;
+    p.pts.material.opacity = p.life;
+    if (p.life <= 0) {
+      scene.remove(p.pts);
+      p.pts.geometry.dispose();
+      p.pts.material.dispose();
+      particles.splice(i, 1);
+    }
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
